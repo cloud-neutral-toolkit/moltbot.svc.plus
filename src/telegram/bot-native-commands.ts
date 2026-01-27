@@ -336,7 +336,7 @@ export const registerTelegramNativeCommands = ({
       operation: "setMyCommands",
       runtime,
       fn: () => bot.api.setMyCommands(allCommands),
-    }).catch(() => {});
+    }).catch(() => { });
 
     if (typeof (bot as unknown as { command?: unknown }).command !== "function") {
       logVerbose("telegram: bot.command unavailable; skipping native handlers");
@@ -387,10 +387,10 @@ export const registerTelegramNativeCommands = ({
               : `/${command.name}`;
           const menu = commandDefinition
             ? resolveCommandArgMenu({
-                command: commandDefinition,
-                args: commandArgs,
-                cfg,
-              })
+              command: commandDefinition,
+              args: commandArgs,
+              cfg,
+            })
             : null;
           if (menu && commandDefinition) {
             const title =
@@ -503,7 +503,7 @@ export const registerTelegramNativeCommands = ({
             cfg,
             dispatcherOptions: {
               responsePrefix: resolveEffectiveMessagesConfig(cfg, route.agentId).responsePrefix,
-              deliver: async (payload, _info) => {
+              deliver: async (payload, info) => {
                 const result = await deliverReplies({
                   replies: [payload],
                   chatId: String(chatId),
@@ -516,6 +516,7 @@ export const registerTelegramNativeCommands = ({
                   tableMode,
                   chunkMode,
                   linkPreview: telegramCfg.linkPreview,
+                  notifyEmptyResponse: info.kind === "final",
                 });
                 if (result.delivered) {
                   deliveryState.delivered = true;
@@ -622,6 +623,6 @@ export const registerTelegramNativeCommands = ({
       operation: "setMyCommands",
       runtime,
       fn: () => bot.api.setMyCommands([]),
-    }).catch(() => {});
+    }).catch(() => { });
   }
 };

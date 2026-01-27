@@ -234,6 +234,7 @@ export const dispatchTelegramMessage = async ({
           onVoiceRecording: sendRecordVoice,
           linkPreview: telegramCfg.linkPreview,
           replyQuoteText,
+          notifyEmptyResponse: info.kind === "final",
         });
         if (result.delivered) {
           deliveryState.delivered = true;

@@ -57,11 +57,13 @@ If you manage a Debian server with a public hostname, the repo ships `scripts/in
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/clawdbot.svc.plus/main/scripts/init_vhost.sh \
-  | bash -s clawdbot.svc.plus
+| bash -s clawdbot.svc.plus
+```
 
+```
 PROXY=nginx INSTALL_METHOD=git CERTBOT_EMAIL=ops@example.com \
-  curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/clawdbot.svc.plus/main/scripts/init_vhost.sh \
-  | bash -s clawdbot.svc.plus
+curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/clawdbot.svc.plus/main/scripts/init_vhost.sh \
+| bash -s clawdbot.svc.plus
 ```
 
 The script also honors overrides such as `CLAWDBOT_VERSION`, `GIT_REPO`, and `CERTBOT_EMAIL`.

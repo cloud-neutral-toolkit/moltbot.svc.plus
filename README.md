@@ -56,11 +56,11 @@ The wizard installs the Gateway daemon (launchd/systemd user service) so it stay
 If you manage a Debian server with a public hostname, the repo ships `scripts/init_vhost.sh`. It installs Node 24, sets up `clawdbot` (npm or git), enables UFW, and configures Caddy (default) or nginx+Certbot before pairing the gateway daemon. Example usage:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/clawdbot-svc-plus/main/scripts/init_vhost.sh \
+curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/clawdbot.svc.plus/main/scripts/init_vhost.sh \
   | bash -s clawdbot.svc.plus
 
 PROXY=nginx INSTALL_METHOD=git CERTBOT_EMAIL=ops@example.com \
-  curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/clawdbot-svc-plus/main/scripts/init_vhost.sh \
+  curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/clawdbot.svc.plus/main/scripts/init_vhost.sh \
   | bash -s clawdbot.svc.plus
 ```
 

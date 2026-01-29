@@ -44,7 +44,7 @@ export async function deliverReplies(params: {
   linkPreview?: boolean;
   /** Optional quote text for Telegram reply_parameters. */
   replyQuoteText?: string;
-  /** If true, send a fallback message when all replies are empty. Default: false */
+  /** Controls whether a fallback message is sent when no response is generated. */
   notifyEmptyResponse?: boolean;
 }): Promise<{ delivered: boolean }> {
   const {
@@ -92,7 +92,6 @@ export async function deliverReplies(params: {
         continue;
       }
       runtime.error?.(danger("reply missing text/media"));
-      skippedEmpty++;
       continue;
     }
     const replyToId = replyToMode === "off" ? undefined : resolveTelegramReplyId(reply.replyToId);
@@ -107,6 +106,9 @@ export async function deliverReplies(params: {
     const replyMarkup = buildInlineKeyboard(telegramData?.buttons);
     if (mediaList.length === 0) {
       const chunks = chunkText(reply.text || "");
+      if (chunks.length === 0 && (reply.text || "").trim().length === 0) {
+        skippedEmpty += 1;
+      }
       for (let i = 0; i < chunks.length; i += 1) {
         const chunk = chunks[i];
         if (!chunk) continue;
@@ -295,7 +297,6 @@ export async function deliverReplies(params: {
     });
     markDelivered();
   }
-
   return { delivered: hasDelivered };
 }
 

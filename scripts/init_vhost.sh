@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Multi-distribution installer for clawdbot.svc.plus
+# Supports: Debian/Ubuntu, RHEL/CentOS/Rocky, Fedora, Arch Linux, openSUSE, macOS
 set -euo pipefail
 
 PROXY="${PROXY:-caddy}"
@@ -9,11 +11,22 @@ CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
 PUBLIC_SCHEME="https"
 OS_FAMILY="linux"
 OS_NAME="$(uname -s 2>/dev/null || true)"
+PACKAGE_MANAGER=""
+UPDATE_CMD=""
+INSTALL_CMD=""
 
 usage() {
   cat <<'EOF'
 Usage:
   init_vhost.sh [domain]
+
+Supported Distributions:
+  - Debian/Ubuntu/Kali/Pop!_OS/Linux Mint (apt)
+  - RHEL/CentOS/Rocky Linux/AlmaLinux/Oracle Linux (dnf/yum)
+  - Fedora (dnf)
+  - Arch Linux/Manjaro (pacman)
+  - openSUSE/SUSE (zypper)
+  - macOS (Homebrew)
 
 Defaults:
   - domain: current hostname (hostname -f, then hostname)
@@ -22,9 +35,24 @@ Defaults:
   - proxy: Caddy with automatic TLS (set PROXY=nginx to use nginx+Certbot)
   - customize Certbot email via CERTBOT_EMAIL
 
+Environment Variables:
+  PROXY=caddy|nginx       - Web proxy selection
+  INSTALL_METHOD=npm|git  - Installation method
+  CLAWDBOT_VERSION=latest - Specific version to install
+  CERTBOT_EMAIL=email     - Let's Encrypt email for certificates
+
 Examples:
+  # Install with defaults (Caddy + auto TLS)
   curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/clawdbot-svc-plus/main/scripts/init_vhost.sh | bash
-  curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/clawdbot-svc-plus/main/scripts/init_vhost.sh | bash -s clawdbot.svc.plus
+
+  # Install for specific domain with nginx
+  curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/clawdbot-svc-plus/main/scripts/init_vhost.sh | bash -s example.com PROXY=nginx
+
+  # Install from git repository
+  curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/clawdbot-svc-plus/main/scripts/init_vhost.sh | bash -s clawdbot.svc.plus INSTALL_METHOD=git
+
+  # Install with specific version and email
+  CLAWDBOT_VERSION=v1.2.3 CERTBOT_EMAIL=admin@example.com bash init_vhost.sh mydomain.com
 EOF
 }
 
@@ -80,11 +108,41 @@ if [[ "$OS_FAMILY" == "linux" ]]; then
   fi
 fi
 
+# Determine package manager and validate supported distributions
 if [[ "$OS_FAMILY" == "linux" ]]; then
-  if [[ "${ID:-}" != "debian" && "${ID_LIKE:-}" != *"debian"* ]]; then
-    echo "This installer currently supports Debian-based systems only."
-    exit 1
-  fi
+  case "${ID:-}" in
+    debian|ubuntu|kali|pop|linuxmint)
+      PACKAGE_MANAGER="apt"
+      UPDATE_CMD="apt-get update"
+      INSTALL_CMD="apt-get install -y"
+      ;;
+    rhel|centos|fedora|rocky|almalinux|ol)
+      PACKAGE_MANAGER="dnf"
+      UPDATE_CMD="dnf check-update || true"
+      INSTALL_CMD="dnf install -y"
+      # For older RHEL/CentOS versions, fallback to yum
+      if ! command -v dnf >/dev/null 2>&1; then
+        PACKAGE_MANAGER="yum"
+        UPDATE_CMD="yum check-update || true"
+        INSTALL_CMD="yum install -y"
+      fi
+      ;;
+    arch|manjaro)
+      PACKAGE_MANAGER="pacman"
+      UPDATE_CMD="pacman -Sy"
+      INSTALL_CMD="pacman -S --noconfirm"
+      ;;
+    opensuse*|suse*)
+      PACKAGE_MANAGER="zypper"
+      UPDATE_CMD="zypper refresh"
+      INSTALL_CMD="zypper install -y"
+      ;;
+    *)
+      echo "Unsupported Linux distribution: ${ID:-unknown}"
+      echo "This installer supports: Debian/Ubuntu, RHEL/CentOS/Rocky, Fedora, Arch, openSUSE"
+      exit 1
+      ;;
+  esac
 fi
 
 as_root() {
@@ -118,14 +176,35 @@ ensure_node24() {
     fi
   fi
   if [[ "$need_install" -eq 1 ]]; then
-    as_root apt-get update
-    as_root apt-get install -y curl ca-certificates
-    if [[ $(id -u) -eq 0 ]]; then
-      curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
-    else
-      curl -fsSL https://deb.nodesource.com/setup_24.x | as_root -E bash -
-    fi
-    as_root apt-get install -y nodejs
+    # Install base dependencies
+    case "$PACKAGE_MANAGER" in
+      apt)
+        as_root $UPDATE_CMD
+        as_root $INSTALL_CMD curl ca-certificates
+        if [[ $(id -u) -eq 0 ]]; then
+          curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+        else
+          curl -fsSL https://deb.nodesource.com/setup_24.x | as_root -E bash -
+        fi
+        as_root $INSTALL_CMD nodejs
+        ;;
+      dnf|yum)
+        as_root $UPDATE_CMD
+        as_root $INSTALL_CMD curl ca-certificates
+        # Install NodeSource repository
+        curl -fsSL https://rpm.nodesource.com/setup_24.x | as_root bash -
+        as_root $INSTALL_CMD nodejs
+        ;;
+      pacman)
+        as_root $UPDATE_CMD
+        as_root $INSTALL_CMD curl ca-certificates
+        as_root $INSTALL_CMD nodejs npm
+        ;;
+      zypper)
+        as_root $UPDATE_CMD
+        as_root $INSTALL_CMD curl ca-certificates nodejs npm
+        ;;
+    esac
   fi
 }
 
@@ -170,14 +249,34 @@ ensure_node24_darwin() {
 }
 
 ensure_packages() {
-  local packages=(git curl ca-certificates ufw)
+  local packages=(git curl ca-certificates)
+  # Add firewall based on package manager
+  case "$PACKAGE_MANAGER" in
+    apt) packages+=(ufw) ;;
+    dnf|yum) packages+=(firewalld) ;;
+    pacman) packages+=(iptables) ;;
+    zypper) packages+=(firewalld) ;;
+  esac
+
+  # Add proxy packages
   if [[ "$PROXY" == "nginx" ]]; then
-    packages+=(nginx certbot python3-certbot-nginx)
+    case "$PACKAGE_MANAGER" in
+      apt) packages+=(nginx certbot python3-certbot-nginx) ;;
+      dnf|yum) packages+=(nginx certbot python3-certbot-nginx) ;;
+      pacman) packages+=(nginx certbot) ;;
+      zypper) packages+=(nginx certbot) ;;
+    esac
   else
-    packages+=(caddy)
+    case "$PACKAGE_MANAGER" in
+      apt) packages+=(caddy) ;;
+      dnf|yum) packages+=(caddy) ;;
+      pacman) packages+=(caddy) ;;
+      zypper) packages+=(caddy) ;;
+    esac
   fi
-  as_root apt-get update
-  as_root apt-get install -y "${packages[@]}"
+
+  as_root $UPDATE_CMD
+  as_root $INSTALL_CMD "${packages[@]}"
 }
 
 ensure_packages_darwin() {
@@ -272,6 +371,99 @@ EOF
   as_root systemctl reload nginx
 }
 
+configure_nginx_rhel() {
+  local vhost="/etc/nginx/conf.d/clawdbot-${DOMAIN}.conf"
+  if [[ ! -f "$vhost" ]]; then
+    cat <<EOF | as_root tee "$vhost" >/dev/null
+server {
+  listen 80;
+  server_name ${DOMAIN};
+
+  location / {
+    proxy_pass http://127.0.0.1:18789;
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+  }
+}
+EOF
+  fi
+  as_root nginx -t
+  as_root systemctl enable --now nginx
+  as_root systemctl reload nginx
+}
+
+configure_caddy() {
+  local service="/etc/caddy/Caddyfile"
+  if [[ "$OS_FAMILY" == "darwin" ]]; then
+    if command -v brew >/dev/null 2>&1; then
+      service="$(brew --prefix)/etc/Caddyfile"
+    fi
+  fi
+  cat <<EOF | as_root tee "$service" >/dev/null
+${DOMAIN} {
+  reverse_proxy 127.0.0.1:18789
+}
+EOF
+  if [[ "$OS_FAMILY" == "darwin" ]]; then
+    if command -v brew >/dev/null 2>&1; then
+      brew services start caddy || brew services restart caddy
+    else
+      as_root caddy start --config "$service"
+    fi
+  else
+    as_root systemctl enable --now caddy
+    as_root systemctl reload caddy
+  fi
+}
+
+configure_nginx_distro() {
+  case "$PACKAGE_MANAGER" in
+    apt|zypper)
+      configure_nginx
+      ;;
+    dnf|yum|pacman)
+      configure_nginx_rhel
+      ;;
+  esac
+}
+
+configure_firewall() {
+  case "$PACKAGE_MANAGER" in
+    apt)
+      local ports=(22/tcp 80/tcp 443/tcp 18789/tcp)
+      for port in "${ports[@]}"; do
+        as_root ufw allow "${port}" >/dev/null
+      done
+      as_root ufw default allow outgoing >/dev/null
+      as_root ufw default deny incoming >/dev/null
+      if as_root ufw status | grep -q "Status: inactive"; then
+        as_root ufw --force enable >/dev/null
+      fi
+      ;;
+    dnf|yum|zypper)
+      as_root systemctl enable --now firewalld
+      as_root firewall-cmd --permanent --add-port=22/tcp
+      as_root firewall-cmd --permanent --add-port=80/tcp
+      as_root firewall-cmd --permanent --add-port=443/tcp
+      as_root firewall-cmd --permanent --add-port=18789/tcp
+      as_root firewall-cmd --reload
+      ;;
+    pacman)
+      as_root systemctl enable --now iptables
+      as_root iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+      as_root iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+      as_root iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+      as_root iptables -A INPUT -p tcp --dport 18789 -j ACCEPT
+      as_root iptables-save > /etc/iptables/iptables.rules
+      ;;
+  esac
+}
+
 configure_certbot() {
   local email_args=("--register-unsafely-without-email")
   if [[ -n "$CERTBOT_EMAIL" ]]; then
@@ -306,7 +498,7 @@ EOF
 
 configure_proxy() {
   if [[ "$PROXY" == "nginx" ]]; then
-    configure_nginx
+    configure_nginx_distro
     configure_certbot
   else
     configure_caddy
@@ -371,3 +563,4 @@ else
   cat <<'EOF'
   - `journalctl --user -u clawdbot-gateway --no-pager`
 EOF
+fi

@@ -427,7 +427,7 @@ export function renderApp(state: AppViewState) {
         })
         : nothing}
 
-        ${state.tab === "chat"
+      ${state.tab === "chat"
       ? renderChat({
         sessionKey: state.sessionKey,
         onSessionKeyChange: (next) => {

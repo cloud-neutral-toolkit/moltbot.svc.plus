@@ -288,11 +288,12 @@ export async function approveDevicePairing(
     const roles = mergeRoles(existing?.roles, existing?.role, pending.roles, pending.role);
     const scopes = mergeScopes(existing?.scopes, pending.scopes);
     const tokens = existing?.tokens ? { ...existing.tokens } : {};
-    const roleForToken = normalizeRole(pending.role);
-    if (roleForToken) {
+    const rolesToTokenize = mergeRoles(pending.roles, pending.role) || [];
+    for (const role of rolesToTokenize) {
+      const roleForToken = normalizeRole(role);
+      if (!roleForToken) continue;
       const nextScopes = normalizeScopes(pending.scopes);
       const existingToken = tokens[roleForToken];
-      const now = Date.now();
       tokens[roleForToken] = {
         token: newToken(),
         role: roleForToken,

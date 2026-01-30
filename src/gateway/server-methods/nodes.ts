@@ -126,9 +126,13 @@ export const nodeHandlers: GatewayRequestHandlers = {
       });
       return;
     }
-    const { requestId } = params as { requestId: string };
+    const { requestId, userUuid, userEmail } = params as {
+      requestId: string;
+      userUuid?: string;
+      userEmail?: string;
+    };
     await respondUnavailableOnThrow(respond, async () => {
-      const approved = await approveNodePairing(requestId);
+      const approved = await approveNodePairing(requestId, userUuid, userEmail);
       if (!approved) {
         respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "unknown requestId"));
         return;
@@ -230,28 +234,54 @@ export const nodeHandlers: GatewayRequestHandlers = {
       return;
     }
     await respondUnavailableOnThrow(respond, async () => {
-      const list = await listDevicePairing();
-      const pairedById = new Map(
-        list.paired
-          .filter((entry) => isNodeEntry(entry))
-          .map((entry) => [
-            entry.deviceId,
-            {
-              nodeId: entry.deviceId,
-              displayName: entry.displayName,
-              platform: entry.platform,
-              version: undefined,
-              coreVersion: undefined,
-              uiVersion: undefined,
-              deviceFamily: undefined,
-              modelIdentifier: undefined,
-              remoteIp: entry.remoteIp,
-              caps: [],
-              commands: [],
-              permissions: undefined,
-            },
-          ]),
-      );
+      const [deviceList, nodeList] = await Promise.all([
+        listDevicePairing(),
+        listNodePairing(),
+      ]);
+
+      const pairedById = new Map<string, any>();
+
+      // Add paired devices that have node roles
+      for (const entry of deviceList.paired) {
+        if (isNodeEntry(entry)) {
+          pairedById.set(entry.deviceId, {
+            nodeId: entry.deviceId,
+            displayName: entry.displayName,
+            platform: entry.platform,
+            version: undefined,
+            coreVersion: undefined,
+            uiVersion: undefined,
+            deviceFamily: undefined,
+            modelIdentifier: undefined,
+            remoteIp: entry.remoteIp,
+            caps: [],
+            commands: [],
+            permissions: undefined,
+            userUuid: entry.userUuid,
+            userEmail: entry.userEmail,
+          });
+        }
+      }
+
+      // Add nodes paired via explicit node-pairing flow
+      for (const entry of nodeList.paired) {
+        pairedById.set(entry.nodeId, {
+          nodeId: entry.nodeId,
+          displayName: entry.displayName,
+          platform: entry.platform,
+          version: entry.version,
+          coreVersion: entry.coreVersion,
+          uiVersion: entry.uiVersion,
+          deviceFamily: entry.deviceFamily,
+          modelIdentifier: entry.modelIdentifier,
+          remoteIp: entry.remoteIp,
+          caps: entry.caps,
+          commands: entry.commands,
+          permissions: entry.permissions,
+          userUuid: entry.userUuid,
+          userEmail: entry.userEmail,
+        });
+      }
       const connected = context.nodeRegistry.listConnected();
       const connectedById = new Map(connected.map((n) => [n.nodeId, n]));
       const nodeIds = new Set<string>([...pairedById.keys(), ...connectedById.keys()]);
@@ -280,6 +310,8 @@ export const nodeHandlers: GatewayRequestHandlers = {
           connectedAtMs: live?.connectedAtMs,
           paired: Boolean(paired),
           connected: Boolean(live),
+          userUuid: paired?.userUuid,
+          userEmail: paired?.userEmail,
         };
       });
 
@@ -311,8 +343,26 @@ export const nodeHandlers: GatewayRequestHandlers = {
       return;
     }
     await respondUnavailableOnThrow(respond, async () => {
-      const list = await listDevicePairing();
-      const paired = list.paired.find((n) => n.deviceId === id && isNodeEntry(n));
+      const [deviceList, nodeList] = await Promise.all([
+        listDevicePairing(),
+        listNodePairing(),
+      ]);
+      const pairedDevice = deviceList.paired.find((n) => n.deviceId === id && isNodeEntry(n));
+      const pairedNode = nodeList.paired.find((n) => n.nodeId === id);
+      const paired = pairedDevice
+        ? {
+          nodeId: pairedDevice.deviceId,
+          displayName: pairedDevice.displayName,
+          platform: pairedDevice.platform,
+          remoteIp: pairedDevice.remoteIp,
+          userUuid: pairedDevice.userUuid,
+          userEmail: pairedDevice.userEmail,
+          caps: [],
+          commands: [],
+          permissions: undefined,
+        }
+        : pairedNode;
+
       const connected = context.nodeRegistry.listConnected();
       const live = connected.find((n) => n.nodeId === id);
 
@@ -344,6 +394,8 @@ export const nodeHandlers: GatewayRequestHandlers = {
           connectedAtMs: live?.connectedAtMs,
           paired: Boolean(paired),
           connected: Boolean(live),
+          userUuid: paired?.userUuid,
+          userEmail: paired?.userEmail,
         },
         undefined,
       );

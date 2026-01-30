@@ -6,7 +6,7 @@ import { createDefaultDeps } from "../cli/deps.js";
 import { agentCommand } from "../commands/agent.js";
 import { emitAgentEvent, onAgentEvent } from "../infra/agent-events.js";
 import { defaultRuntime } from "../runtime.js";
-import { authorizeGatewayConnect, type ResolvedGatewayAuth } from "./auth.js";
+import { authorizeGatewayHttpRequest, type ResolvedGatewayAuth } from "./auth.js";
 import {
   readJsonBodyOrError,
   sendJson,
@@ -164,10 +164,8 @@ export async function handleOpenAiHttpRequest(
     return true;
   }
 
-  const token = getBearerToken(req);
-  const authResult = await authorizeGatewayConnect({
+  const authResult = await authorizeGatewayHttpRequest({
     auth: opts.auth,
-    connectAuth: { token, password: token },
     req,
     trustedProxies: opts.trustedProxies,
   });
@@ -220,9 +218,9 @@ export async function handleOpenAiHttpRequest(
       const content =
         Array.isArray(payloads) && payloads.length > 0
           ? payloads
-              .map((p) => (typeof p.text === "string" ? p.text : ""))
-              .filter(Boolean)
-              .join("\n\n")
+            .map((p) => (typeof p.text === "string" ? p.text : ""))
+            .filter(Boolean)
+            .join("\n\n")
           : "No response from OpenClaw.";
 
       sendJson(res, 200, {
@@ -341,9 +339,9 @@ export async function handleOpenAiHttpRequest(
         const content =
           Array.isArray(payloads) && payloads.length > 0
             ? payloads
-                .map((p) => (typeof p.text === "string" ? p.text : ""))
-                .filter(Boolean)
-                .join("\n\n")
+              .map((p) => (typeof p.text === "string" ? p.text : ""))
+              .filter(Boolean)
+              .join("\n\n")
             : "No response from OpenClaw.";
 
         sawAssistantDelta = true;

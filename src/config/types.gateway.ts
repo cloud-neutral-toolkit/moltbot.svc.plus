@@ -83,6 +83,8 @@ export type GatewayAuthConfig = {
   password?: string;
   /** Allow Tailscale identity headers when serve mode is enabled. */
   allowTailscale?: boolean;
+  /** URL of the accounts service for session validation (e.g. "https://accounts.svc.plus"). */
+  accountsSvcUrl?: string;
 };
 
 export type GatewayTailscaleMode = "off" | "serve" | "funnel";

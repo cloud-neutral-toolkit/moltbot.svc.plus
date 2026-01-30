@@ -14,7 +14,7 @@ import { createDefaultDeps } from "../cli/deps.js";
 import { agentCommand } from "../commands/agent.js";
 import { emitAgentEvent, onAgentEvent } from "../infra/agent-events.js";
 import { defaultRuntime } from "../runtime.js";
-import { authorizeGatewayConnect, type ResolvedGatewayAuth } from "./auth.js";
+import { authorizeGatewayHttpRequest, type ResolvedGatewayAuth } from "./auth.js";
 import { getBearerToken, resolveAgentIdForRequest, resolveSessionKey } from "./http-utils.js";
 import {
   readJsonBodyOrError,
@@ -249,12 +249,12 @@ function createEmptyUsage(): Usage {
 function toUsage(
   value:
     | {
-        input?: number;
-        output?: number;
-        cacheRead?: number;
-        cacheWrite?: number;
-        total?: number;
-      }
+      input?: number;
+      output?: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      total?: number;
+    }
     | undefined,
 ): Usage {
   if (!value) return createEmptyUsage();
@@ -275,8 +275,8 @@ function extractUsageFromResult(result: unknown): Usage {
   const usage = meta && typeof meta === "object" ? meta.agentMeta?.usage : undefined;
   return toUsage(
     usage as
-      | { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number }
-      | undefined,
+    | { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number }
+    | undefined,
   );
 }
 
@@ -327,10 +327,8 @@ export async function handleOpenResponsesHttpRequest(
     return true;
   }
 
-  const token = getBearerToken(req);
-  const authResult = await authorizeGatewayConnect({
+  const authResult = await authorizeGatewayHttpRequest({
     auth: opts.auth,
-    connectAuth: { token, password: token },
     req,
     trustedProxies: opts.trustedProxies,
   });
@@ -520,7 +518,7 @@ export async function handleOpenResponsesHttpRequest(
       const pendingToolCalls =
         meta && typeof meta === "object"
           ? (meta as { pendingToolCalls?: Array<{ id: string; name: string; arguments: string }> })
-              .pendingToolCalls
+            .pendingToolCalls
           : undefined;
 
       // If agent called a client tool, return function_call instead of text
@@ -549,9 +547,9 @@ export async function handleOpenResponsesHttpRequest(
       const content =
         Array.isArray(payloads) && payloads.length > 0
           ? payloads
-              .map((p) => (typeof p.text === "string" ? p.text : ""))
-              .filter(Boolean)
-              .join("\n\n")
+            .map((p) => (typeof p.text === "string" ? p.text : ""))
+            .filter(Boolean)
+            .join("\n\n")
           : "No response from OpenClaw.";
 
       const response = createResponseResource({
@@ -587,7 +585,7 @@ export async function handleOpenResponsesHttpRequest(
   let accumulatedText = "";
   let sawAssistantDelta = false;
   let closed = false;
-  let unsubscribe = () => {};
+  let unsubscribe = () => { };
   let finalUsage: Usage | undefined;
   let finalizeRequested: { status: ResponseResource["status"]; text: string } | null = null;
 
@@ -754,10 +752,10 @@ export async function handleOpenResponsesHttpRequest(
         const pendingToolCalls =
           meta && typeof meta === "object"
             ? (
-                meta as {
-                  pendingToolCalls?: Array<{ id: string; name: string; arguments: string }>;
-                }
-              ).pendingToolCalls
+              meta as {
+                pendingToolCalls?: Array<{ id: string; name: string; arguments: string }>;
+              }
+            ).pendingToolCalls
             : undefined;
 
         // If agent called a client tool, emit function_call instead of text
@@ -828,9 +826,9 @@ export async function handleOpenResponsesHttpRequest(
         const content =
           Array.isArray(payloads) && payloads.length > 0
             ? payloads
-                .map((p) => (typeof p.text === "string" ? p.text : ""))
-                .filter(Boolean)
-                .join("\n\n")
+              .map((p) => (typeof p.text === "string" ? p.text : ""))
+              .filter(Boolean)
+              .join("\n\n")
             : "No response from OpenClaw.";
 
         accumulatedText = content;

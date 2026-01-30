@@ -10,6 +10,7 @@ export type ResolvedGatewayAuth = {
   token?: string;
   password?: string;
   allowTailscale: boolean;
+  accountsSvcUrl?: string; // Add this
 };
 
 export type GatewayAuthResult = {
@@ -164,6 +165,49 @@ async function resolveVerifiedTailscaleUser(params: {
   };
 }
 
+/**
+ * Validates a session token against the accounts service.
+ */
+async function validateSession(params: {
+  accountsSvcUrl: string;
+  token: string;
+}): Promise<{ ok: boolean; user?: string; reason?: string }> {
+  const { accountsSvcUrl, token } = params;
+  try {
+    const url = new URL("/api/auth/session", accountsSvcUrl);
+    const response = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      return { ok: false, reason: "session_invalid" };
+    }
+
+    const data = (await response.json()) as { user?: { id: string; email: string } };
+    return { ok: true, user: data.user?.email || data.user?.id };
+  } catch (err) {
+    return { ok: false, reason: "session_check_failed" };
+  }
+}
+
+/**
+ * Parses cookies from the Cookie header.
+ */
+function parseCookies(cookieHeader?: string): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  if (!cookieHeader) return cookies;
+  const pairs = cookieHeader.split(";");
+  for (const pair of pairs) {
+    const [key, value] = pair.split("=");
+    if (key && value) {
+      cookies[key.trim()] = value.trim();
+    }
+  }
+  return cookies;
+}
+
 export function resolveGatewayAuth(params: {
   authConfig?: GatewayAuthConfig | null;
   env?: NodeJS.ProcessEnv;
@@ -186,12 +230,103 @@ export function resolveGatewayAuth(params: {
     token,
     password,
     allowTailscale,
+    accountsSvcUrl: authConfig.accountsSvcUrl || env.ACCOUNTS_SVC_URL,
   };
+}
+
+/**
+ * Authorizes an HTTP request based on shared secret (token/password) or session cookie.
+ */
+export async function authorizeGatewayHttpRequest(params: {
+  auth: ResolvedGatewayAuth;
+  req: IncomingMessage;
+  trustedProxies?: string[];
+}): Promise<GatewayAuthResult> {
+  const { auth, req, trustedProxies } = params;
+
+  // 1. Check for shared secret in headers
+  const authHeader = headerValue(req.headers.authorization);
+  if (authHeader) {
+    const [type, value] = authHeader.split(" ");
+    if (type?.toLowerCase() === "bearer" && value) {
+      if (auth.token && safeEqual(value, auth.token)) {
+        return { ok: true, method: "token" };
+      }
+    }
+  }
+
+  const customTokenHeader = headerValue(req.headers["x-openclaw-token"]);
+  if (customTokenHeader && auth.token && safeEqual(customTokenHeader, auth.token)) {
+    return { ok: true, method: "token" };
+  }
+
+  const customPasswordHeader = headerValue(req.headers["x-openclaw-password"]);
+  if (customPasswordHeader && auth.password && safeEqual(customPasswordHeader, auth.password)) {
+    return { ok: true, method: "password" };
+  }
+
+  // 2. Check for xc_session cookie or shared Bearer token if accountsSvcUrl is configured
+  if (auth.accountsSvcUrl) {
+    const cookies = parseCookies(headerValue(req.headers.cookie));
+    const sessionToken = cookies["xc_session"] || (authHeader?.split(" ")[0]?.toLowerCase() === "bearer" ? authHeader.split(" ")[1] : undefined);
+
+    if (sessionToken) {
+      const result = await validateSession({
+        accountsSvcUrl: auth.accountsSvcUrl,
+        token: sessionToken,
+      });
+      if (result.ok) {
+        return { ok: true, method: "token", user: result.user };
+      }
+    }
+  }
+
+  // 3. Fallback to local direct request (auth bypass for localhost)
+  if (isLocalDirectRequest(req, trustedProxies)) {
+    return { ok: true, method: "token", user: "local" };
+  }
+
+  return { ok: false, reason: "unauthorized" };
+}
+
+/**
+ * Authorizes a connection or request based on session cookies.
+ */
+async function authorizeBySession(params: {
+  auth: ResolvedGatewayAuth;
+  req?: IncomingMessage;
+  token?: string;
+}): Promise<GatewayAuthResult | null> {
+  const { auth, req, token } = params;
+  if (!auth.accountsSvcUrl) return null;
+
+  let sessionToken = token;
+  if (!sessionToken && req) {
+    const cookies = parseCookies(headerValue(req.headers.cookie));
+    sessionToken = cookies["xc_session"];
+    if (!sessionToken) {
+      const authHeader = headerValue(req.headers.authorization);
+      if (authHeader?.split(" ")[0]?.toLowerCase() === "bearer") {
+        sessionToken = authHeader.split(" ")[1];
+      }
+    }
+  }
+
+  if (sessionToken) {
+    const result = await validateSession({
+      accountsSvcUrl: auth.accountsSvcUrl,
+      token: sessionToken,
+    });
+    if (result.ok) {
+      return { ok: true, method: "token", user: result.user };
+    }
+  }
+  return null;
 }
 
 export function assertGatewayAuthConfigured(auth: ResolvedGatewayAuth): void {
   if (auth.mode === "token" && !auth.token) {
-    if (auth.allowTailscale) return;
+    if (auth.allowTailscale || auth.accountsSvcUrl) return;
     throw new Error(
       "gateway auth mode is token, but no token was configured (set gateway.auth.token or OPENCLAW_GATEWAY_TOKEN)",
     );
@@ -224,6 +359,12 @@ export async function authorizeGatewayConnect(params: {
         user: tailscaleCheck.user.login,
       };
     }
+  }
+
+  // Check for xc_session cookie or shared Bearer token (SSO)
+  const sessionAuth = await authorizeBySession({ auth, req, token: connectAuth?.token });
+  if (sessionAuth) {
+    return sessionAuth;
   }
 
   if (auth.mode === "token") {

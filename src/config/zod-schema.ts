@@ -329,6 +329,7 @@ export const OpenClawSchema = z
             token: z.string().optional(),
             password: z.string().optional(),
             allowTailscale: z.boolean().optional(),
+            accountsSvcUrl: z.string().url().optional(),
           })
           .strict()
           .optional(),

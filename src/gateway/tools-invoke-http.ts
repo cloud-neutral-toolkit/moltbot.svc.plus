@@ -23,7 +23,7 @@ import { getPluginToolMeta } from "../plugins/tools.js";
 import { isSubagentSessionKey } from "../routing/session-key.js";
 import { normalizeMessageChannel } from "../utils/message-channel.js";
 
-import { authorizeGatewayConnect, type ResolvedGatewayAuth } from "./auth.js";
+import { authorizeGatewayHttpRequest, type ResolvedGatewayAuth } from "./auth.js";
 import { getBearerToken, getHeader } from "./http-utils.js";
 import {
   readJsonBodyOrError,
@@ -103,10 +103,8 @@ export async function handleToolsInvokeHttpRequest(
   }
 
   const cfg = loadConfig();
-  const token = getBearerToken(req);
-  const authResult = await authorizeGatewayConnect({
+  const authResult = await authorizeGatewayHttpRequest({
     auth: opts.auth,
-    connectAuth: token ? { token, password: token } : null,
     req,
     trustedProxies: opts.trustedProxies ?? cfg.gateway?.trustedProxies,
   });

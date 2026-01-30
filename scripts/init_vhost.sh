@@ -5,7 +5,8 @@ set -euo pipefail
 
 PROXY="${PROXY:-caddy}"
 INSTALL_METHOD="${INSTALL_METHOD:-npm}"
-GIT_REPO="${GIT_REPO:-https://github.com/cloud-neutral-toolkit/clawdbot.svc.plus.git}"
+GIT_REPO="${GIT_REPO:-https://github.com/cloud-neutral-toolkit/openclawbot.svc.plus.git}"
+SOURCE_REPO="${SOURCE_REPO:-https://github.com/cloud-neutral-toolkit/openclawbot.svc.plus.git}"
 CLAWDBOT_VERSION="${CLAWDBOT_VERSION:-latest}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
 PUBLIC_SCHEME="https"
@@ -28,31 +29,52 @@ Supported Distributions:
   - openSUSE/SUSE (zypper)
   - macOS (Homebrew)
 
+Installation Modes:
+  1. npm (default) - Install from npm registry: npm install -g clawdbot@latest
+  2. git (source)  - Install from source: git clone and build from repository
+  3. npm-alt       - Alternative npm package: npm install -g openclaw@latest
+
 Defaults:
   - domain: current hostname (hostname -f, then hostname)
+  - install mode: npm (set INSTALL_METHOD=git for source installation)
   - clawdbot version: "latest" (override with CLAWDBOT_VERSION env var)
-  - install method: npm (set INSTALL_METHOD=git to install from the cloned repo in /opt)
   - proxy: Caddy with automatic TLS (set PROXY=nginx to use nginx+Certbot)
   - customize Certbot email via CERTBOT_EMAIL
 
 Environment Variables:
-  PROXY=caddy|nginx       - Web proxy selection
-  INSTALL_METHOD=npm|git  - Installation method
-  CLAWDBOT_VERSION=latest - Specific version to install
-  CERTBOT_EMAIL=email     - Let's Encrypt email for certificates
+  PROXY=caddy|nginx           - Web proxy selection
+  INSTALL_METHOD=npm|git|npm-alt - Installation method
+  CLAWDBOT_VERSION=latest     - Specific version to install
+  CERTBOT_EMAIL=email         - Let's Encrypt email for certificates
+  SOURCE_REPO=repo-url        - Source repository URL (for git mode)
 
 Examples:
-  # Install with defaults (Caddy + auto TLS)
-  curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/clawdbot-svc-plus/main/scripts/init_vhost.sh | bash
+  # Install with defaults (npm mode + Caddy + auto TLS)
+  curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/openclawbot.svc.plus/main/scripts/init_vhost.sh | bash
 
-  # Install for specific domain with nginx
-  curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/clawdbot-svc-plus/main/scripts/init_vhost.sh | bash -s example.com PROXY=nginx
+  # Install from source (git mode) with specific domain
+  curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/openclawbot.svc.plus/main/scripts/init_vhost.sh | bash -s openclawbot.svc.plus INSTALL_METHOD=git
 
-  # Install from git repository
-  curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/clawdbot-svc-plus/main/scripts/init_vhost.sh | bash -s clawdbot.svc.plus INSTALL_METHOD=git
+  # Install alternative npm package (openclaw)
+  curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/openclawbot.svc.plus/main/scripts/init_vhost.sh | bash -s openclawbot.svc.plus INSTALL_METHOD=npm-alt
+
+  # Install with nginx proxy
+  curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/openclawbot.svc.plus/main/scripts/init_vhost.sh | bash -s openclawbot.svc.plus PROXY=nginx
+
+  # Install from custom repository
+  SOURCE_REPO=https://github.com/your-org/openclawbot.svc.plus.git bash init_vhost.sh openclawbot.svc.plus INSTALL_METHOD=git
 
   # Install with specific version and email
-  CLAWDBOT_VERSION=v1.2.3 CERTBOT_EMAIL=admin@example.com bash init_vhost.sh mydomain.com
+  CLAWDBOT_VERSION=v1.2.3 CERTBOT_EMAIL=admin@example.com bash init_vhost.sh openclawbot.svc.plus
+
+Source Installation Mode Details (INSTALL_METHOD=git):
+  This mode will:
+  - Clone the repository to /opt/openclawbot-svc-plus
+  - Install dependencies with pnpm
+  - Build the UI components (pnpm ui:build)
+  - Build the application (pnpm build)
+  - Install the built application globally
+  - Set up the daemon service
 EOF
 }
 
@@ -81,8 +103,11 @@ if [[ "$PROXY" != "caddy" && "$PROXY" != "nginx" ]]; then
 fi
 
 INSTALL_METHOD="$(tr '[:upper:]' '[:lower:]' <<< "$INSTALL_METHOD")"
-if [[ "$INSTALL_METHOD" != "npm" && "$INSTALL_METHOD" != "git" ]]; then
-  echo "Unsupported install method '$INSTALL_METHOD'. Use 'npm' or 'git'."
+if [[ "$INSTALL_METHOD" != "npm" && "$INSTALL_METHOD" != "git" && "$INSTALL_METHOD" != "npm-alt" ]]; then
+  echo "Unsupported install method '$INSTALL_METHOD'. Use 'npm', 'git', or 'npm-alt'."
+  echo "  npm:    Install from npm registry (clawdbot@latest)"
+  echo "  git:    Install from source code (git clone and build)"
+  echo "  npm-alt: Install alternative npm package (openclaw@latest)"
   exit 1
 fi
 
@@ -317,26 +342,36 @@ install_clawdbot_npm() {
   as_root npm install -g "clawdbot@${CLAWDBOT_VERSION}"
 }
 
+install_clawdbot_npm_alt() {
+  as_root npm install -g "openclaw@${CLAWDBOT_VERSION}"
+}
+
 install_clawdbot_git() {
-  local install_dir="/opt/clawdbot-svc-plus"
+  local install_dir="/opt/openclawbot-svc-plus"
   if [[ ! -d "$install_dir" ]]; then
     run_as_user mkdir -p "$install_dir"
-    run_as_user git clone "$GIT_REPO" "$install_dir"
+    run_as_user git clone "$SOURCE_REPO" "$install_dir"
   else
     run_as_user git -C "$install_dir" fetch --all --prune
     run_as_user git -C "$install_dir" checkout main
     run_as_user git -C "$install_dir" reset --hard origin/main
   fi
-  run_as_user bash -c "cd $install_dir && pnpm install && pnpm build"
+  run_as_user bash -c "cd $install_dir && pnpm install && pnpm ui:build && pnpm build"
   run_as_user npm install -g "$install_dir"
 }
 
 install_clawdbot() {
-  if [[ "$INSTALL_METHOD" == "git" ]]; then
-    install_clawdbot_git
-  else
-    install_clawdbot_npm
-  fi
+  case "$INSTALL_METHOD" in
+    git)
+      install_clawdbot_git
+      ;;
+    npm-alt)
+      install_clawdbot_npm_alt
+      ;;
+    npm|*)
+      install_clawdbot_npm
+      ;;
+  esac
 }
 
 configure_clawdbot() {

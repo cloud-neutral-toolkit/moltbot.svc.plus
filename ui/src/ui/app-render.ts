@@ -425,7 +425,8 @@ export function renderApp(state: AppViewState) {
             return saveExecApprovals(state, target);
           },
         })
-        : nothing}
+        : nothing)
+      : nothing}
 
       ${state.tab === "chat"
       ? renderChat({

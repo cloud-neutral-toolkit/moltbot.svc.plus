@@ -10,11 +10,11 @@ WORKDIR /app
 
 ARG OPENCLAW_DOCKER_APT_PACKAGES=""
 RUN if [ -n "$OPENCLAW_DOCKER_APT_PACKAGES" ]; then \
-      apt-get update && \
-      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $OPENCLAW_DOCKER_APT_PACKAGES && \
-      apt-get clean && \
-      rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*; \
-    fi
+  apt-get update && \
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $OPENCLAW_DOCKER_APT_PACKAGES && \
+  apt-get clean && \
+  rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*; \
+  fi
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY ui/package.json ./ui/package.json
@@ -31,9 +31,16 @@ RUN pnpm ui:build
 
 ENV NODE_ENV=production
 
-# Security hardening: Run as non-root user
-# The node:22-bookworm image includes a 'node' user (uid 1000)
-# This reduces the attack surface by preventing container escape via root privileges
-USER node
+# Ensure the state directory exists and has correct permissions
+RUN mkdir -p /home/node/.openclaw && chown -R node:node /home/node/.openclaw /app
 
-CMD ["node", "dist/index.js"]
+# Cloud Run health check timeout can be short, so we ensure the app starts fast.
+# We run as root to avoid GCSFuse permission complexities in this environment.
+USER root
+
+# Explicitly set the port if not provided by env, though resolveGatewayPort handles it.
+ENV PORT=18789
+
+# Start the gateway in the foreground.
+# We use the absolute path to node and the script to be safe.
+CMD ["node", "/app/dist/index.js", "gateway", "run", "--allow-unconfigured", "--bind", "lan"]

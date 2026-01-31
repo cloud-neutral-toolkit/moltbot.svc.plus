@@ -216,6 +216,8 @@ function serveIndexHtml(res: ServerResponse, indexPath: string, opts: ServeIndex
     }) ?? identity.avatar;
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
+  // Allow embedding in iframes (e.g. from console.svc.plus)
+  res.setHeader("Content-Security-Policy", "frame-ancestors *");
   const raw = fs.readFileSync(indexPath, "utf8");
   res.end(
     injectControlUiConfig(raw, {
